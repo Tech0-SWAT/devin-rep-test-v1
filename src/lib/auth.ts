@@ -1,48 +1,21 @@
 import { sign, verify } from 'jsonwebtoken';
 import { compare, hash } from 'bcrypt';
 import { prisma } from './prisma';
-import fs from 'fs';
-import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 
-const KEYS_DIR = path.join(process.cwd(), 'keys');
-const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'private.key');
-const PUBLIC_KEY_PATH = path.join(KEYS_DIR, 'public.key');
+const DEFAULT_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgKxR5njoQS9zL8Jhd
+9MCR7SsRjgf8Vyj/ygI++NRFSaShRANCAARBqgm7Ky4jJJBr8ztRM3JpLLIcRu6a
+e+Bf9MBwdH+ew3pHDoYSvQCKGC/y5OaDJlX9UkdEQj9h13P0hhWe7j8c
+-----END PRIVATE KEY-----`;
 
-if (!fs.existsSync(KEYS_DIR)) {
-  fs.mkdirSync(KEYS_DIR, { recursive: true });
-}
+const DEFAULT_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQaoJuysuIySQa/M7UTNyaSyyHEbu
+mnvgX/TAcHR/nsN6Rw6GEr0Aihgv8uTmgyZV/VJHREI/Yddz9IYVnu4/HA==
+-----END PUBLIC KEY-----`;
 
-let privateKey: string;
-let publicKey: string;
-
-try {
-  if (!fs.existsSync(PRIVATE_KEY_PATH) || !fs.existsSync(PUBLIC_KEY_PATH)) {
-    const { generateKeyPairSync } = require('crypto');
-    const { privateKey: privKey, publicKey: pubKey } = generateKeyPairSync('ed25519');
-    
-    privateKey = privKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-    publicKey = pubKey.export({ type: 'spki', format: 'pem' }).toString();
-    
-    fs.writeFileSync(PRIVATE_KEY_PATH, privateKey);
-    fs.writeFileSync(PUBLIC_KEY_PATH, publicKey);
-  } else {
-    privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
-    publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
-  }
-} catch (error) {
-  console.error('Error generating or loading keys:', error);
-  privateKey = process.env.JWT_PRIVATE_KEY || 'dev-private-key';
-  publicKey = process.env.JWT_PUBLIC_KEY || 'dev-public-key';
-}
-
-const gitignorePath = path.join(process.cwd(), '.gitignore');
-if (fs.existsSync(gitignorePath)) {
-  const gitignore = fs.readFileSync(gitignorePath, 'utf8');
-  if (!gitignore.includes('keys/')) {
-    fs.appendFileSync(gitignorePath, '\n# ED25519 Keys\nkeys/\n');
-  }
-}
+const privateKey = process.env.JWT_PRIVATE_KEY || DEFAULT_PRIVATE_KEY;
+const publicKey = process.env.JWT_PUBLIC_KEY || DEFAULT_PUBLIC_KEY;
 
 export async function hashPassword(password: string): Promise<string> {
   return hash(password, 10);
@@ -53,16 +26,22 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 }
 
 export function generateToken(payload: any): string {
-  return sign(payload, privateKey, {
-    algorithm: 'ES256',
-    expiresIn: '7d', // 7 days
-  });
+  try {
+    return sign(payload, privateKey, {
+      algorithm: 'ES256',
+      expiresIn: '7d', // 7 days
+    });
+  } catch (error) {
+    console.error('Error generating token:', error);
+    throw new Error('Failed to generate token');
+  }
 }
 
 export function verifyToken(token: string): any {
   try {
     return verify(token, publicKey, { algorithms: ['ES256'] });
   } catch (error) {
+    console.error('Error verifying token:', error);
     return null;
   }
 }
